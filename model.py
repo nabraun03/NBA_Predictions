@@ -36,23 +36,21 @@ scaler = StandardScaler()
 #X_away[numerical_cols] = scaler.fit_transform(X_away[numerical_cols])
 
 
-X_home = pd.get_dummies(X_home, columns = ['teamTricode', 'playoff'])
+X_home = pd.get_dummies(X_home, columns = ['teamTricode'])
 X_away = pd.get_dummies(X_away, columns = ['teamTricode'])
 
-print(X_home.dtypes)
-print(X_away.dtypes)
+X_home = X_home.drop(columns = ['playoff'])
 
 X_combined = X_home.set_index('gameId').sub(X_away.set_index('gameId'), fill_value=0).reset_index()
 
 # Rename columns to indicate 'home' or 'away'
 
-#X_home.columns = ['gameId', 'playoff'] + [str(col) + '_home' for  col in X_away.columns if col not in ['gameId', 'home_win', 'playoff']] + ['home_win'] 
+#X_home.columns = ['gameId', 'playoff'] + [str(col) + '_home' for  col in X_away.columns if col not in ['gameId', 'home_win', 'playoff']] + ['home_win']
 
-#X_combined = pd.merge(X_home, X_away, on = ['gameId', 'playoff'], how = 'inner')
+X_combined = pd.merge(X_combined, df_averages[['gameId', 'playoff']], on = ['gameId'], how = 'inner')
 
 X_combined = X_combined[abs(X_combined['game_count']) < 5]
 X_combined = X_combined.sort_values(by='gameId')
-print(X_combined.head())
 
 y = X_combined[['home_win']]
 X_combined = X_combined.drop(columns = ['home_win'])
@@ -72,12 +70,12 @@ X_combined = X_combined.dropna()
 X_combined.to_csv('all_averages_with_ids.csv')
 
 
-X_train, X_calib, y_test, y_calib = train_test_split(X_combined, y, test_size=0.2)
-X_train, X_test, y_train, y_test = train_test_split(X_combined, y, test_size = 0.2)
+X_train, X_test, y_train, y_test = train_test_split(X_combined, y, test_size=0.2)
+X_train, X_calib, y_train, y_calib = train_test_split(X_combined, y, test_size=0.2)
 
 X_test.to_csv('test_averages_with_ids.csv')
 X_train = X_train.drop(columns = ['gameId'])
-X_calib = X_calib.drop(columns = ['gameId'])
+X_train.to_csv('X_train.csv')
 X_test = X_test.drop(columns = ['gameId'])
 
 """
@@ -141,7 +139,7 @@ import pickle
 num_samples = X_test.shape[0]
 sum_probabilities = np.zeros((num_samples, 2))  
 
-n_models = 100
+n_models = 50
 
 
 from sklearn.calibration import CalibratedClassifierCV
@@ -170,7 +168,7 @@ for i in range(n_models):
 
     # Calibrate model on calibration dataset
     calibrated_model = CalibratedClassifierCV(xgb_model, method='isotonic', cv='prefit')
-    calibrated_model.fit(X_calib, y_calib)
+    #calibrated_model.fit(X_calib, y_calib)
     
     # Store the calibrated model
     calibrated_models.append(calibrated_model)

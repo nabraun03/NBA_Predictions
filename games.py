@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
+from datetime import timedelta
 
 team_map = {'76ers' : 'PHI',
             'Celtics' : 'BOS',
@@ -33,7 +34,7 @@ team_map = {'76ers' : 'PHI',
             'Bucks' : 'MIL',
             'Clippers' : 'LAC'}
 
-def fetch_games_today():
+def fetch_games_today(yesterday=False):
 
     url = f"https://www.espn.com/nba/scoreboard/_/date/"
 
@@ -41,8 +42,10 @@ def fetch_games_today():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
     }
 
-    current_date = datetime.now().strftime("%Y%m%d")
-    print(current_date)
+    if yesterday:
+        current_date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+    else:
+        current_date = datetime.now().strftime("%Y%m%d")
     url = f'{url}{current_date}'
 
     # Request the webpage
@@ -62,6 +65,3 @@ def fetch_games_today():
     for i in range(0, len(team_names_raw), 2):
         games.append(f'{team_map[team_names_raw[i].text]}-{team_map[team_names_raw[i+1].text]}')
     return games
-
-print(fetch_games_today())
-

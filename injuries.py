@@ -37,26 +37,37 @@ def fetch_injured_players():
 
             response.raise_for_status()
             last_url = full_url
+            print(last_url)
         except:
-            download_pdf(last_url, "injury_report.pdf")
+            try:
+                download_pdf(last_url, "injury_report.pdf")
 
-            text = extract_text_from_pdf('injury_report.pdf')
-            text = text.replace('\n', ' ').replace('Injury Report:', '').replace('G League', 'G-League')
+                text = extract_text_from_pdf('injury_report.pdf')
+                text = text.replace('\n', ' ').replace('Injury Report:', '').replace('G League', 'G-League')
+                print(text)
 
-            # Updated regex pattern
-            pattern = r"([A-Za-z'.]+(?:\sJr\.|\sSr\.|\sIII|\sIV)?),\s*([A-Za-z'.]+)\s*(Available|Out|Doubtful|Questionable|Probable|Not With Team)\s*(Injury/Illness|G-League|Two-Way|Coach's Decision|League Suspension)"
-
-
-            matches = re.findall(pattern, text)
-
-            injured_players = []
-            for match in matches:
-
-                if match[2] == 'Out':
-                    injured_players.append(f'{match[1]} {match[0]}')
-            return injured_players
+                # Updated regex pattern
+                pattern = r"([A-Za-z'.]+(?:\sJr\.|\sSr\.|\sII|\sIII|\sIV)?),\s*([A-Za-z'.]+)\s*(Available|Out|Doubtful|Questionable|Probable|Not With Team)\s*(Injury/Illness|G-League|Two-Way|Coach's Decision|League Suspension)"
 
 
+                matches = re.findall(pattern, text)
+                print(matches)
+
+                injured_players = []
+                for match in matches:
+
+                    if match[2] == 'Out':
+                        injured_players.append(f'{match[1]} {match[0]}')
+
+                print("INJURED PLATERS")
+                print('INJURED PLAYERS')
+                print(injured_players)
+                print(injured_players)
+                return injured_players
+            except:
+                return []
 
 
 
+
+print(fetch_injured_players())

@@ -1,5 +1,5 @@
 
-scripts = ['apirequests.py', 'preprocessing.py', 'elo.py', 'predictions.py']
+scripts = ['apirequests.py', 'preprocessing.py', 'currentprofiles.py', 'predictions.py']
 
 
 for script in scripts:

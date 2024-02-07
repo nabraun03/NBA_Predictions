@@ -1,303 +1,413 @@
 import pandas as pd
 import numpy as np
+from travel import calculate_travel
 from datetime import date, datetime
-from injuries import fetch_injured_players
+from elo import elo
 
-injured_players = fetch_injured_players()
-seasons = ['2023-24', '2022-23', '2021-22', '2020-21', '2019-20', '2018-19', '2017-18', '2016-17']
+def convert_minutes_to_float(time_str):
+    if type(time_str) != str:
+        return time_str
+    if ':' in time_str:
+        minutes, seconds = map(int, time_str.split(':'))
+        return minutes + seconds / 60
+    else:
+        return 0
 
-def calculate_days_between(d1, d2):
-    return (date(d1[0], d1[1], d1[2]) - date(d2[0], d2[1], d2[2])).days
+class Preprocessor:
 
+    def __init__(self, seasons, span, shift, full):
+        self.seasons = seasons
+        self.games = pd.DataFrame()
+        print("Loading games")
+        self.load_all_games()
+        self.player_stats = pd.DataFrame()
+        self.team_stats = pd.DataFrame()
+        self.rosters = pd.DataFrame()
+        self.span = span
+        self.shift = shift
+        self.current = (self.shift == 0)
+        self.complete_profiles = pd.DataFrame()
+        
+        print("Loading team data")
+        self.load_team_data()
+        if full:
+            
+            if not self.current:
+                print("Generating travel statistics")
+                self.generate_travel_statistics()
+            print("Generating elo")
+            self.generate_elo()
+            print("Loading player data")
+            self.load_player_data()
+            self.impute_historical_positions()
+            print("Compiling rosters")
+            self.generate_rosters()
+            print("Compiling complete profiles")
+            self.compile_complete_profiles()
 
-all_games = pd.DataFrame()
-all_averages = pd.DataFrame()
-df_player_stats = pd.DataFrame()
-
-
-for season in seasons:
-    player_logs = pd.read_csv(f'{season}_player_logs.csv', index_col=0)
-    df_player_stats = pd.concat([df_player_stats, player_logs])
-
-df_player_stats['GAME_DATE'] = pd.to_datetime(df_player_stats['GAME_DATE'])
-df_player_stats['shifted_available_flag'] = df_player_stats.groupby('PLAYER_ID')['AVAILABLE_FLAG'].shift(-1)
-
-count = 0
-
-
-
-
-def get_current_roster(df_player_stats, team_id, injured_players):
-    # Define a recent activity window (e.g., last 15 days)
-    recent_date_threshold = pd.to_datetime('today') - pd.Timedelta(days=15)
-
-    # Filter players with recent activity
-    recent_active_players = df_player_stats[pd.to_datetime(df_player_stats['GAME_DATE']) >= recent_date_threshold]
-
-    # Group by player and get the most recent entry for each player
-    most_recent_games = recent_active_players.groupby('PLAYER_ID').apply(lambda x: x.sort_values(by='GAME_DATE', ascending=False).head(1)).reset_index(drop=True)
-
-    # Filter out players whose most recent game was not with the specified team
-    print(team_id)
-    most_recent_team_players = most_recent_games[most_recent_games['TEAM_ABBREVIATION'] == team_id]
-
-    # Remove injured players
-    active_roster = most_recent_team_players[~most_recent_team_players['PLAYER_NAME'].isin(injured_players)]
-
-    # Sort by relevant criteria (e.g., minutes played)
-    sorted_roster = active_roster.sort_values(by='running_avg_PTS', ascending=False)
-
-    return sorted_roster.head(12)
-
-def get_top_12_players(df_games, df_player_stats, game_id, team_id):
-    game_date = df_games.loc[df_games['gameId'] == game_id, 'GAME_DATE'].iloc[0]
-
-
-
-    # Pre-filter the players based on the team and active period
-    game_players = df_player_stats[(df_player_stats['GAME_ID'] == game_id) & 
-                                (df_player_stats['TEAM_ABBREVIATION'] == team_id) & 
-                                (df_player_stats['shifted_available_flag'] == 1)]
-
-
-    # Calculate average minutes and get top 10
-    top_players = game_players.head(12).sort_values(by='running_avg_PTS', ascending=False)
-    return top_players
-
-
-# Assuming 'df_player_stats' contains player stats with a column 'date' for game dates
-span = 50  # Number of games to consider for the running average
-
-df_player_stats = df_player_stats.sort_values(by = ['GAME_DATE'], ascending = True)
-player_stats_columns = ['MIN','FGM','FGA','FG3M','FG3A','FTM','FTA','OREB','DREB','REB','AST','TOV','STL','BLK','BLKA','PF','PFD','PTS','PLUS_MINUS','NBA_FANTASY_PTS','DD2','TD3','WNBA_FANTASY_PTS']
-for stat in player_stats_columns:  # Skipping gameId, playerId, teamId
-    df_player_stats[f'running_avg_{stat}'] = df_player_stats.groupby('PLAYER_ID')[stat].transform(lambda x: x.ewm(span=span).mean().shift(1))
-ranks = ['GP_RANK','W_RANK','L_RANK','W_PCT_RANK','MIN_RANK','FGM_RANK','FGA_RANK','FG_PCT_RANK','FG3M_RANK','FG3A_RANK','FG3_PCT_RANK','FTM_RANK','FTA_RANK','FT_PCT_RANK','OREB_RANK','DREB_RANK','REB_RANK','AST_RANK','TOV_RANK','STL_RANK','BLK_RANK','BLKA_RANK','PF_RANK','PFD_RANK','PTS_RANK','PLUS_MINUS_RANK','NBA_FANTASY_PTS_RANK','DD2_RANK','TD3_RANK','WNBA_FANTASY_PTS_RANK']
-for rank in ranks:
-    df_player_stats[f'running_avg_{rank}'] = df_player_stats.groupby('PLAYER_ID')[rank].transform(lambda x: x.ewm(span=span).mean().shift(1))
-df_player_stats = df_player_stats.drop(columns = player_stats_columns)
-df_player_stats = df_player_stats.drop(columns = ranks)
-
-print("Generating most recent teams")
-
-# Sort the dataframe by 'PLAYER_ID' and 'GAME_DATE' first
-df_player_stats = df_player_stats.sort_values(by=['PLAYER_ID', 'GAME_DATE'])
-
-# Compute the most recent team for each player
-
-print('done')
-df_player_stats.to_csv('all_player_logs.csv')
-
-df_player_stats = pd.read_csv('all_player_logs.csv')
-
-for season in seasons:
-
-    df_games = pd.read_csv(f'{season}_all_games.csv')
-    df_advanced = pd.read_csv(f'{season}_advanced_stats.csv')[['gameId', 'teamTricode', 'estimatedOffensiveRating', 'offensiveRating', 'estimatedDefensiveRating', 'defensiveRating', 'estimatedNetRating', 'netRating', 'estimatedPace', 'pace', 'pacePer40', 'possessions', 'PIE']]
-    df_basic = pd.read_csv(f'{season}_traditional_stats.csv')[['gameId', 'teamTricode', 'fieldGoalsMade', 'fieldGoalsAttempted', 'threePointersMade', 'threePointersAttempted', 'freeThrowsMade', 'freeThrowsAttempted', 'reboundsOffensive', 'reboundsDefensive', 'reboundsTotal', 'assists', 'steals', 'blocks', 'turnovers', 'foulsPersonal', 'points', 'plusMinusPoints']]
-    df_hustle = pd.read_csv(f'{season}_hustle_stats.csv')[['gameId', 'teamTricode', 'contestedShots', 'contestedShots2pt', 'contestedShots3pt', 'deflections', 'chargesDrawn', 'screenAssists', 'screenAssistPoints', 'looseBallsRecoveredOffensive', 'looseBallsRecoveredDefensive', 'looseBallsRecoveredTotal', 'offensiveBoxOuts', 'defensiveBoxOuts', 'boxOutPlayerTeamRebounds', 'boxOutPlayerRebounds', 'boxOuts']]
-    df_misc = pd.read_csv(f'{season}_misc_stats.csv')[['gameId', 'teamTricode', 'pointsOffTurnovers', 'pointsSecondChance', 'pointsFastBreak', 'pointsPaint', 'oppPointsOffTurnovers', 'oppPointsSecondChance', 'oppPointsFastBreak', 'oppPointsPaint', 'blocksAgainst', 'foulsDrawn']]
-    df_tracking = pd.read_csv(f'{season}_track_stats.csv')[['gameId', 'teamTricode', 'distance', 'reboundChancesOffensive', 'reboundChancesDefensive', 'reboundChancesTotal', 'touches', 'secondaryAssists', 'freeThrowAssists', 'passes', 'contestedFieldGoalsMade', 'contestedFieldGoalsAttempted', 'uncontestedFieldGoalsMade', 'uncontestedFieldGoalsAttempted', 'defendedAtRimFieldGoalsMade', 'defendedAtRimFieldGoalsAttempted']]
-
+        
+    def load_all_games(self):
+        seasons = []
+        for season in self.seasons:
+            df_games = pd.read_csv(f'{season}_all_games.csv')
+            seasons.append(df_games)
+        self.games = pd.concat(seasons)
+        self.games['GAME_DATE'] = self.games['GAME_DATE'].apply(lambda x: date(*map(int, x.split('-'))))
     
+    def load_player_data(self):
+        seasons = []
+        for season in self.seasons:
+            df_games = pd.read_csv(f'{season}_all_games.csv')
+            advanced_player_logs = pd.read_csv(f'{season}_advanced_player_stats.csv')[['gameId', 'teamTricode', 'firstName', 'familyName', 'minutes','estimatedOffensiveRating','offensiveRating','estimatedDefensiveRating','defensiveRating','estimatedNetRating','netRating','assistPercentage','assistToTurnover','assistRatio','offensiveReboundPercentage','defensiveReboundPercentage','reboundPercentage','turnoverRatio','effectiveFieldGoalPercentage','trueShootingPercentage','usagePercentage','estimatedUsagePercentage','estimatedPace','pace','pacePer40','possessions','PIE']]
+            hustle_player_logs = pd.read_csv(f'{season}_hustle_player_stats.csv')[['gameId', 'teamTricode','firstName', 'familyName', 'position', 'points','contestedShots','contestedShots2pt','contestedShots3pt','deflections','chargesDrawn','screenAssists','screenAssistPoints','looseBallsRecoveredOffensive','looseBallsRecoveredDefensive','looseBallsRecoveredTotal','offensiveBoxOuts','defensiveBoxOuts','boxOutPlayerTeamRebounds','boxOutPlayerRebounds','boxOuts']]
+            misc_player_logs = pd.read_csv(f'{season}_misc_player_stats.csv')[['gameId', 'teamTricode', 'firstName', 'familyName', 'pointsOffTurnovers','pointsSecondChance','pointsFastBreak','pointsPaint','oppPointsOffTurnovers','oppPointsSecondChance','oppPointsFastBreak','oppPointsPaint','blocksAgainst','foulsDrawn']]
+            traditional_player_logs = pd.read_csv(f'{season}_traditional_player_stats.csv')[['gameId', 'teamTricode', 'firstName', 'familyName', 'fieldGoalsMade','fieldGoalsAttempted','fieldGoalsPercentage','threePointersMade','threePointersAttempted','threePointersPercentage','freeThrowsMade','freeThrowsAttempted','freeThrowsPercentage','reboundsOffensive','reboundsDefensive','reboundsTotal','assists','steals','blocks','turnovers','foulsPersonal','plusMinusPoints']]
+            track_player_logs = pd.read_csv(f'{season}_track_player_stats.csv')[['gameId', 'teamTricode', 'firstName', 'familyName', 'speed','distance','reboundChancesOffensive','reboundChancesDefensive','reboundChancesTotal','touches','secondaryAssists','freeThrowAssists','passes','contestedFieldGoalsMade','contestedFieldGoalsAttempted','contestedFieldGoalPercentage','uncontestedFieldGoalsMade','uncontestedFieldGoalsAttempted','uncontestedFieldGoalsPercentage','defendedAtRimFieldGoalsMade','defendedAtRimFieldGoalsAttempted','defendedAtRimFieldGoalPercentage']]
+                    
 
-    dfs_to_merge = [df_basic, df_hustle, df_misc, df_tracking]
-    df_merged = df_advanced
-    for df in dfs_to_merge:
+            merge_columns = ['gameId', 'teamTricode', 'firstName', 'familyName']
+            merged_df = pd.merge(advanced_player_logs, hustle_player_logs, on=merge_columns, how='inner')
+            merged_df = pd.merge(merged_df, misc_player_logs, on=merge_columns, how='inner')
+            merged_df = pd.merge(merged_df, traditional_player_logs, on=merge_columns, how='inner')
+            merged_df = pd.merge(merged_df, track_player_logs, on=merge_columns, how='inner')
 
-        df_merged = pd.merge(df_merged, df, on=['gameId', 'teamTricode'], how = 'inner')
+            merged_df = pd.merge(merged_df, df_games[['gameId', 'GAME_DATE']], on = 'gameId', how = 'left')
+            merged_df['date'] = merged_df['GAME_DATE'].apply(lambda x: date(*map(int, x.split('-'))))
+            merged_df = merged_df.drop(columns = ['GAME_DATE'])
+
+            seasons.append(merged_df)
+            
+        combined = pd.concat(seasons)
+
+        self.player_stats = self.preprocess_player_data(combined)
+    
+    def load_team_data(self):
+        seasons = []
+        for season in self.seasons:
+            df_games = pd.read_csv(f'{season}_all_games.csv')
+            df_advanced = pd.read_csv(f'{season}_advanced_stats.csv')[['gameId', 'teamTricode', 'estimatedOffensiveRating', 'offensiveRating', 'estimatedDefensiveRating', 'defensiveRating', 'estimatedNetRating', 'netRating','assistPercentage','assistToTurnover','assistRatio','offensiveReboundPercentage','defensiveReboundPercentage','reboundPercentage','turnoverRatio','effectiveFieldGoalPercentage','trueShootingPercentage','usagePercentage','estimatedUsagePercentage', 'estimatedPace', 'pace', 'pacePer40', 'possessions', 'PIE']]
+            df_basic = pd.read_csv(f'{season}_traditional_stats.csv')[['gameId', 'teamTricode', 'fieldGoalsMade', 'fieldGoalsAttempted', 'fieldGoalsPercentage', 'threePointersMade', 'threePointersAttempted', 'threePointersPercentage', 'freeThrowsMade', 'freeThrowsAttempted', 'freeThrowsPercentage', 'reboundsOffensive', 'reboundsDefensive', 'reboundsTotal', 'assists', 'steals', 'blocks', 'turnovers', 'foulsPersonal', 'points', 'plusMinusPoints']]
+            df_hustle = pd.read_csv(f'{season}_hustle_stats.csv')[['gameId', 'teamTricode', 'contestedShots', 'contestedShots2pt', 'contestedShots3pt', 'deflections', 'chargesDrawn', 'screenAssists', 'screenAssistPoints', 'looseBallsRecoveredOffensive', 'looseBallsRecoveredDefensive', 'looseBallsRecoveredTotal', 'offensiveBoxOuts', 'defensiveBoxOuts', 'boxOutPlayerTeamRebounds', 'boxOutPlayerRebounds', 'boxOuts']]
+            df_misc = pd.read_csv(f'{season}_misc_stats.csv')[['gameId', 'teamTricode', 'pointsOffTurnovers', 'pointsSecondChance', 'pointsFastBreak', 'pointsPaint', 'oppPointsOffTurnovers', 'oppPointsSecondChance', 'oppPointsFastBreak', 'oppPointsPaint', 'blocksAgainst', 'foulsDrawn']]
+            df_tracking = pd.read_csv(f'{season}_track_stats.csv')[['gameId', 'teamTricode', 'distance', 'reboundChancesOffensive', 'reboundChancesDefensive', 'reboundChancesTotal', 'touches', 'secondaryAssists', 'freeThrowAssists', 'passes', 'contestedFieldGoalsMade', 'contestedFieldGoalsAttempted', 'contestedFieldGoalPercentage', 'uncontestedFieldGoalsMade', 'uncontestedFieldGoalsAttempted', 'uncontestedFieldGoalsPercentage', 'defendedAtRimFieldGoalsMade', 'defendedAtRimFieldGoalsAttempted', 'defendedAtRimFieldGoalPercentage']]
+
+            merge_columns = ['gameId', 'teamTricode']
+            merged_df = pd.merge(df_advanced, df_basic, on = merge_columns, how = 'inner')
+            merged_df = pd.merge(merged_df, df_hustle, on = merge_columns, how = 'inner')
+            merged_df = pd.merge(merged_df, df_misc, on = merge_columns, how = 'inner')
+            merged_df = pd.merge(merged_df, df_tracking, on = merge_columns, how = 'inner')
+            merged_df = merged_df.drop_duplicates()
 
 
-    # Step 1: Merge the date column into df_merged
-    df_merged = pd.merge(df_merged, df_games[['gameId', 'GAME_DATE']], on='gameId', how='left')
-    df_merged['GAME_DATE'] = df_merged['GAME_DATE'].astype(str)
-    # Step 2: Convert the date column to datetime format
 
-    df_merged['date'] = df_merged['GAME_DATE'].apply(lambda x: date(*map(int, x.split('-'))))
+            merged_df = pd.merge(merged_df, df_games[['gameId', 'GAME_DATE']], on = 'gameId', how = 'left')
+            merged_df['date'] = merged_df['GAME_DATE'].apply(lambda x: date(*map(int, x.split('-'))))
+            merged_df = merged_df.drop(columns = ['GAME_DATE'])
 
-    # ... (your code to read CSV files and merge DataFrames)
+            df_games['winner'] = np.where(df_games['HOME_TEAM_PTS'] > df_games['AWAY_TEAM_PTS'], df_games['HOME_TEAM_ABBREVIATION'], df_games['AWAY_TEAM_ABBREVIATION'])
 
-    # Initialize a new DataFrame to store running averages
+            merged_df = pd.merge(merged_df, df_games[['gameId', 'winner', 'HOME_TEAM_ABBREVIATION', 'AWAY_TEAM_ABBREVIATION']], on='gameId', how='left')
 
-    # Step 1: Calculate the winner for each game in df_games
-    df_games['winner'] = np.where(df_games['HOME_TEAM_PTS'] > df_games['AWAY_TEAM_PTS'], df_games['HOME_TEAM_ABBREVIATION'], df_games['AWAY_TEAM_ABBREVIATION'])
+            merged_df = merged_df.drop_duplicates(subset = ['gameId', 'teamTricode'])
+            processed_df = self.preprocess_team_data(merged_df)
 
-    # Step 2: Merge this winner information into df_running_avgs
-    df_merged = pd.merge(df_merged, df_games[['gameId', 'winner']], on='gameId', how='left')
+            seasons.append(processed_df)
 
-    # Step 3: Calculate the winning percentage
-    grouped = df_merged.groupby('teamTricode')
+        self.team_stats = pd.concat(seasons)
+    
+    def preprocess_team_data(self, df):
 
-    # Initialize a new DataFrame to store running averages and winning percentages
-    df_running_avgs = pd.DataFrame()
-    if season == '2023-24':
-        current_profiles = pd.DataFrame()
+        grouped = df.groupby('teamTricode')
+        modified_groups = []
+        for name, group in grouped:
+            group['game_count'] = group['gameId'].expanding().count().shift(self.shift).fillna(0)
+            group['time_between_games'] = group['date'].diff().dt.days
+            group['playoff'] = (group['game_count'] > 82).astype(int)
 
-    for name, group in grouped:
-        group = group.sort_values('date')
+            group = self.generate_team_running_averages(group)
+            group = self.generate_winning_percentages(group)
+            group = self.generate_streak(group)
+            
+            
+            modified_groups.append(group)
         
+        return pd.concat(modified_groups)
 
-        # Count the number of games for each team up to each point
-        group['game_count'] = group['gameId'].expanding().count()
-        
-        # Calculate if the team won or lost
+    def generate_winning_percentages(self, group):
+        # Calculate overall winning percentage
         group['win'] = (group['teamTricode'] == group['winner']).astype(int)
+        col_name = f'winning_percentage_last_{self.span}'
+        group[col_name] = group['win'].rolling(window=self.span, min_periods=1).mean().shift(self.shift)
 
-        group['winning_percentage'] = group['win'].ewm(span=90, adjust=False).mean().shift(1)
         
-
-        group['game_count'] = group['gameId'].expanding().count()
-        group['time_between_games'] = group['date'].diff().dt.days
-        group['playoff'] = group['game_count'] > 82
+        # Calculate winning percentage for home and away games
+        home_games = group[group['teamTricode'] == group['HOME_TEAM_ABBREVIATION']]
+        home_games[f'home_{col_name}'] = home_games['win'].rolling(window=self.span, min_periods=0).mean()
         
-        # Identify unique columns for which you want to calculate running averages
-        unique_columns = [col for col in group.columns if col not in ['teamTricode', 'gameId', 'HOME_TEAM', 'date', 'time_between_games', 'winning_percentage', 'win', 'winner', 'game_count', 'GAME_DATE', 'playoff']]
+        away_games = group[group['teamTricode'] == group['AWAY_TEAM_ABBREVIATION']]
+        away_games[f'away_{col_name}'] = away_games['win'].rolling(window=self.span, min_periods=0).mean()
         
-        if season == '2023-24':
-            temp = group.copy()
+        # Merge back the calculated home and away percentages to the main dataframe
+        group = group.merge(home_games[['gameId', f'home_{col_name}']], on='gameId', how='left')
+        group = group.merge(away_games[['gameId', f'away_{col_name}']], on='gameId', how='left')
 
-            for col in unique_columns:
-                running_avg_col_name = f'running_avg_{col}'
-                temp[running_avg_col_name] = temp[col].ewm(span=90, min_periods=1).mean()
-            # Sort by date
-            temp.sort_values(by = ['date'], ascending = False)
+        # Forward fill the NaN values in home and away winning percentages
+        group[f'home_{col_name}'] = group[f'home_{col_name}'].ffill().shift(self.shift)
+        group[f'away_{col_name}'] = group[f'away_{col_name}'].ffill().shift(self.shift)
 
-            current_profiles = pd.concat([current_profiles, temp.iloc[-1].to_frame().T])
 
-        for col in unique_columns:
-            running_avg_col_name = f'running_avg_{col}'
-            group[running_avg_col_name] = group[col].ewm(span=90, min_periods=1).mean().shift(1)
 
+        # Fill remaining NaN values with 0 (for the start of the series)
+        group[[f'home_{col_name}', f'away_{col_name}']] = group[[f'home_{col_name}', f'away_{col_name}']].fillna(0)
+        
+        return group
     
-        cols_to_keep = ['teamTricode', 'gameId', 'time_between_games', 'game_count', 'winning_percentage', 'playoff', 'date'] + [f'running_avg_{col}' for col in unique_columns]
-        group = group[cols_to_keep]
-
-        df_running_avgs = pd.concat([df_running_avgs, group])
-
-    if season == '2023-24':
-        cols_to_order = ['gameId', 'playoff', 'teamTricode', 'time_between_games', 'game_count', 'date']
-        new_columns = cols_to_order + [col for col in current_profiles.columns if col not in cols_to_order]
-        current_profiles = current_profiles[new_columns]
-
-        current_profiles['time_between_games'] = (date.today() - current_profiles['date']).dt.days
-        current_profiles['game_count'] = current_profiles['game_count'] + 1
-        cols_to_keep = ['teamTricode', 'gameId', 'time_between_games', 'game_count', 'winning_percentage', 'playoff', 'date'] + [f'running_avg_{col}' for col in unique_columns]
-        current_profiles = current_profiles[cols_to_keep]
+    def calculate_streak(self, group, home_or_away):
+    # Initialize streak column
         
-
-    #df_running_avgs = df_running_avgs[df_running_avgs['game_count'] >= 10]
-    #df_running_avgs.drop(columns = ['game_count'])
-
-
-
-        # Create a DataFrame to store team profiles for each game
-    new_profiles = []
-    
-    final_profiles = {}
-    final_rosters = {}
-    df_games = df_games.sort_values(by = ['GAME_DATE'], ascending = True)
-    print("Generating rosters")
-    
-    for index, game_id in enumerate(df_games['gameId'].unique()):
-        #print(game_id)
-        teams = df_player_stats[df_player_stats['GAME_ID'] == game_id]['TEAM_ABBREVIATION'].unique()
-        invalid = False
-        rosters = []
-        for team in teams:
-            roster = get_top_12_players(df_games, df_player_stats, game_id, team)
-            if roster.shape[0] == 0:
-                invalid = True
+        group[f'{home_or_away.lower()}_streak'] = np.nan
+        current_streak = 0
+        
+        # Select only the relevant games
+        relevant_games = group[group['teamTricode'] == group[f'{home_or_away}_TEAM_ABBREVIATION']]
+        
+        # Calculate the streaks
+        for game in relevant_games.itertuples():
+            if current_streak < 1:
+                if game.win:
+                    current_streak = 1
+                else:
+                    current_streak -= 1
             else:
-                rosters.append(roster)
-                
-        if invalid:
-            continue
-                
-        for i, team_id in enumerate(teams):
-
-            game_date = df_games[df_games['gameId'] == game_id]['GAME_DATE'].iloc[0]
-            top_players = rosters[i]
-            #print(game_id, team_id)
-            #print(top_players)
-            tricode = team_id
-
-            profile = {'gameId' : game_id, 'teamTricode' : tricode, 'date' : game_date}
-            # Sort players within each team by stats
-            p_index = 0
-            for index, player in top_players.iterrows():
-                p_index += 1
-                for column in player.index.to_list():
-                    if column in ['MIN_RANK','FGM_RANK','FGA_RANK','FG_PCT_RANK','FG3M_RANK','FG3A_RANK','FG3_PCT_RANK','FTM_RANK','FTA_RANK','FT_PCT_RANK','OREB_RANK','DREB_RANK','REB_RANK','AST_RANK','TOV_RANK','STL_RANK','BLK_RANK','BLKA_RANK','PF_RANK','PFD_RANK','PTS_RANK','PLUS_MINUS_RANK','NBA_FANTASY_PTS_RANK','DD2_RANK','TD3_RANK','WNBA_FANTASY_PTS_RANK','AVAILABLE_FLAG','running_avg_MIN','running_avg_FGM','running_avg_FGA','running_avg_FG3M','running_avg_FG3A','running_avg_FTM','running_avg_FTA','running_avg_OREB','running_avg_DREB','running_avg_REB','running_avg_AST','running_avg_TOV','running_avg_STL','running_avg_BLK','running_avg_BLKA','running_avg_PF','running_avg_PFD','running_avg_PTS','running_avg_PLUS_MINUS','running_avg_NBA_FANTASY_PTS','running_avg_DD2','running_avg_TD3','running_avg_WNBA_FANTASY_PTS']:
-
-                        profile[f'player_{p_index}_{column}'] = player[column]
-            for i in range(12-top_players.shape[0]):
-                for column in player.index.to_list():
-                    if column in ['MIN_RANK','FGM_RANK','FGA_RANK','FG_PCT_RANK','FG3M_RANK','FG3A_RANK','FG3_PCT_RANK','FTM_RANK','FTA_RANK','FT_PCT_RANK','OREB_RANK','DREB_RANK','REB_RANK','AST_RANK','TOV_RANK','STL_RANK','BLK_RANK','BLKA_RANK','PF_RANK','PFD_RANK','PTS_RANK','PLUS_MINUS_RANK','NBA_FANTASY_PTS_RANK','DD2_RANK','TD3_RANK','WNBA_FANTASY_PTS_RANK','AVAILABLE_FLAG','running_avg_MIN','running_avg_FGM','running_avg_FGA','running_avg_FG3M','running_avg_FG3A','running_avg_FTM','running_avg_FTA','running_avg_OREB','running_avg_DREB','running_avg_REB','running_avg_AST','running_avg_TOV','running_avg_STL','running_avg_BLK','running_avg_BLKA','running_avg_PF','running_avg_PFD','running_avg_PTS','running_avg_PLUS_MINUS','running_avg_NBA_FANTASY_PTS','running_avg_DD2','running_avg_TD3','running_avg_WNBA_FANTASY_PTS']:
-                        profile[f'player_{i + top_players.shape[0] + 1}_{column}'] = 0
-
-
-            # Flatten the sorted stats into a single vector
-            #print(sorted_top_players)  # Include necessary stats
-            new_profiles.append(profile)
-    new_profiles = pd.DataFrame(new_profiles)
-    if new_profiles.size == 0: continue
-    new_profiles['gameId'] = new_profiles['gameId'].astype(int)
-    new_profiles['date'] = pd.to_datetime(new_profiles['date'])
-
-    if season == '2023-24':
-        print("Generating current rosters")
-        final_profiles = []
-        teams = new_profiles.groupby('teamTricode')
-        for i, team in teams:
-            game_id = current_profiles[current_profiles['teamTricode'] == i].iloc[0]['gameId']
-            print(game_id)
-
-            profile = {'gameId' : game_id, 'teamTricode' : i}
-            roster = get_current_roster(df_player_stats, i, injured_players)
-            print(roster)
-            p_i = 0
-            for p_index, player in roster.iterrows():
-                for column in player.index.to_list():
-                    if column in ['MIN_RANK','FGM_RANK','FGA_RANK','FG_PCT_RANK','FG3M_RANK','FG3A_RANK','FG3_PCT_RANK','FTM_RANK','FTA_RANK','FT_PCT_RANK','OREB_RANK','DREB_RANK','REB_RANK','AST_RANK','TOV_RANK','STL_RANK','BLK_RANK','BLKA_RANK','PF_RANK','PFD_RANK','PTS_RANK','PLUS_MINUS_RANK','NBA_FANTASY_PTS_RANK','DD2_RANK','TD3_RANK','WNBA_FANTASY_PTS_RANK','AVAILABLE_FLAG','running_avg_MIN','running_avg_FGM','running_avg_FGA','running_avg_FG3M','running_avg_FG3A','running_avg_FTM','running_avg_FTA','running_avg_OREB','running_avg_DREB','running_avg_REB','running_avg_AST','running_avg_TOV','running_avg_STL','running_avg_BLK','running_avg_BLKA','running_avg_PF','running_avg_PFD','running_avg_PTS','running_avg_PLUS_MINUS','running_avg_NBA_FANTASY_PTS','running_avg_DD2','running_avg_TD3','running_avg_WNBA_FANTASY_PTS']:
-                        profile[f'player_{p_i + 1}_{column}'] = player[column]
-                p_i += 1
-                print(p_i)
-            for p_i in range(12-roster.shape[0]):
-                for column in player.index.to_list():
-                    if column in ['MIN_RANK','FGM_RANK','FGA_RANK','FG_PCT_RANK','FG3M_RANK','FG3A_RANK','FG3_PCT_RANK','FTM_RANK','FTA_RANK','FT_PCT_RANK','OREB_RANK','DREB_RANK','REB_RANK','AST_RANK','TOV_RANK','STL_RANK','BLK_RANK','BLKA_RANK','PF_RANK','PFD_RANK','PTS_RANK','PLUS_MINUS_RANK','NBA_FANTASY_PTS_RANK','DD2_RANK','TD3_RANK','WNBA_FANTASY_PTS_RANK','AVAILABLE_FLAG','running_avg_MIN','running_avg_FGM','running_avg_FGA','running_avg_FG3M','running_avg_FG3A','running_avg_FTM','running_avg_FTA','running_avg_OREB','running_avg_DREB','running_avg_REB','running_avg_AST','running_avg_TOV','running_avg_STL','running_avg_BLK','running_avg_BLKA','running_avg_PF','running_avg_PFD','running_avg_PTS','running_avg_PLUS_MINUS','running_avg_NBA_FANTASY_PTS','running_avg_DD2','running_avg_TD3','running_avg_WNBA_FANTASY_PTS']:
-                        profile[f'player_{p_i + roster.shape[0] + 1}_{column}'] = 0
-
-            final_profiles.append(profile)
-        final_profiles = pd.DataFrame(final_profiles)
-        print(final_profiles)
-        current_profiles = pd.merge(current_profiles, final_profiles, on = ['gameId', 'teamTricode'])
+                if game.win:
+                    current_streak += 1
+                else:
+                    current_streak = -1
+            
+            # Use .at for a more efficient assignment
+            group.at[game.Index, f'{home_or_away.lower()}_streak'] = current_streak
         
-        current_profiles.to_csv('current_profiles.csv') 
-    new_profiles = new_profiles.drop(columns = ['date'])
-    # Rearrange columns to have 'team', 'gameid', 'home', and 'time_between_games' at the beginning
-    cols_to_order = ['gameId', 'playoff', 'teamTricode', 'time_between_games', 'game_count', 'date']
-    new_columns = cols_to_order + [col for col in df_running_avgs.columns if col not in cols_to_order]
-    df_running_avgs = df_running_avgs[new_columns]
-    new_profiles = new_profiles.rename(columns = {'GAME_ID' : 'gameId', 'TEAM_ABBREVIATION' : 'teamTricode'})
+        # Shift the streaks to avoid lookahead bias
+        group[f'{home_or_away.lower()}_streak'] = group[f'{home_or_away.lower()}_streak'].bfill().shift(self.shift).fillna(current_streak)
+
+
+        return group
+
+        
+    def generate_streak(self, group):
+        group['streak'] = 0
+        current_streak = 0
+        for i, row in group.iterrows():
+            
+            if current_streak < 1:
+                if row['win']:
+                    current_streak = 1
+                else:
+                    current_streak -= 1
+            else:
+                if row['win']:
+                    current_streak += 1
+                else:
+                    current_streak = -1
+            
+            group.at[i, 'streak'] = current_streak
+        group['streak'] = group['streak'].shift(self.shift).fillna(0)
+        group = self.calculate_streak(group, 'HOME')
+        group = self.calculate_streak(group, 'AWAY')
+        group = group.drop(columns = ['win', 'winner', 'HOME_TEAM_ABBREVIATION', 'AWAY_TEAM_ABBREVIATION'])
+        return group
+        
+
+    def generate_travel_statistics(self):
+        for days in [1, 3, 5, 10]:  # The different periods you're interested in
+            
+            self.team_stats[f'avg_travel_last_{days}_days'] = self.team_stats.apply(lambda row: calculate_travel(row['teamTricode'], row['date'], days, self.games, self.current), axis=1)
+        self.team_stats[['gameId', 'teamTricode', 'date', 'avg_travel_last_1_days', 'avg_travel_last_3_days', 'avg_travel_last_5_days', 'avg_travel_last_10_days']].to_csv('travel_data.csv')
+
+
+    def generate_elo(self):
+        if self.current:
+            self.team_stats, self.elo_ratings = elo(self.games, self.team_stats, self.current)
+        else:
+            self.team_stats, _ = elo(self.games, self.team_stats, self.current)
+            assert 'elo' in list(self.team_stats.columns)
+        
+    
     
 
 
-    df_running_avgs = pd.merge(df_running_avgs, new_profiles, on=['gameId', 'teamTricode'], how='left')
 
-    print("Concatenating")
-    all_games = pd.concat([all_games, df_games]) 
-    all_averages = pd.concat([all_averages, df_running_avgs], ignore_index=True)
-    # Merging the team profiles with existing game data
+    def generate_team_running_averages(self, group):
+        percentage_columns = ['assistPercentage','assistToTurnover','assistRatio','offensiveReboundPercentage','defensiveReboundPercentage','reboundPercentage','turnoverRatio','effectiveFieldGoalPercentage','trueShootingPercentage','usagePercentage','estimatedUsagePercentage', 'fieldGoalsPercentage', 'threePointersPercentage', 'freeThrowsPercentage', 'contestedFieldGoalPercentage', 'uncontestedFieldGoalsPercentage', 'defendedAtRimFieldGoalPercentage']
+        averaging_columns = [col for col in group.columns if col not in ['teamTricode', 'gameId',  'date','game_count', 'time_between_games', 'playoff', 'winning_percentage', 'home_winning_percentage', 'away_winning_percentage', 'home_streak', 'streak', 'away_streak', 'win', 'winner', 'HOME_TEAM_ABBREVIATION', 'AWAY_TEAM_ABBREVIATION']]
+        for col in averaging_columns:
+            
+            running_avg_col_name = f'running_avg_{col}_last_{self.span}'
+
+            group[running_avg_col_name] = group[col].ewm(span=self.span, min_periods=1).mean().shift(self.shift)
+        group = group.drop(columns = averaging_columns)
+        return group
+
+    def preprocess_player_data(self, df):
+        df = df.sort_values(by = ['date'], ascending = True)
+        df['minutes'] = df['minutes'].apply(convert_minutes_to_float)
+        df = df[df['minutes'] > 0]
+        grouped = df.groupby(['firstName', 'familyName'])
+        modified_groups = []
+        for name, group in grouped:
+
+            group = self.generate_player_running_averages(group)
+            modified_groups.append(group)
+
+        return pd.concat(modified_groups)
+    
+    def generate_player_running_averages(self, group):
+        percentage_columns = ['assistPercentage','assistToTurnover','assistRatio','offensiveReboundPercentage','defensiveReboundPercentage','reboundPercentage','turnoverRatio','effectiveFieldGoalPercentage','trueShootingPercentage','usagePercentage','estimatedUsagePercentage', 'fieldGoalsPercentage', 'threePointersPercentage', 'freeThrowsPercentage', 'contestedFieldGoalPercentage', 'uncontestedFieldGoalsPercentage', 'defendedAtRimFieldGoalPercentage']
+        averaging_columns = [col for col in group.columns if col not in ['gameId', 'teamTricode', 'firstName', 'familyName', 'date', 'position']]
+        for col in averaging_columns:
+            running_avg_col_name = f'running_avg_{col}'
+            group[running_avg_col_name] = group[col].ewm(span=self.span, min_periods = 1).mean().shift(self.shift)
+        group = group.drop(columns = averaging_columns)
+        return group
+
+    def generate_rosters(self):
+        all_rosters = []
+        for season in self.seasons:
+            print(f'Compiling stats for season {season}')
+            games = pd.read_csv(f'{season}_all_games.csv')
+            generator = RosterGenerator(games, self.player_stats, self.team_stats)
+            rosters = generator.rosters
 
 
-# Continue with any additional preprocessing as in your existing code...
+            all_rosters.append(rosters)
+        self.rosters = pd.concat(all_rosters)
+    
+    def impute_historical_positions(self):
+    # Sort player stats by date to ensure chronological order
+        sorted_player_stats = self.player_stats.sort_values(by=['firstName', 'familyName', 'date'], ascending=True)
+
+        # Initialize a DataFrame to store running frequencies
+        running_frequencies = pd.DataFrame()
+
+        # Process each player individually
+        for (firstName, familyName), group in sorted_player_stats.groupby(['firstName', 'familyName']):
+            # One-hot encode positions for each game
+            position_dummies = pd.get_dummies(group['position']).reindex(columns=['G', 'F', 'C'], fill_value=0)
+
+            # Apply a rolling window of 50 games and calculate the mean to get the running frequency
+            # Use min_periods=1 to ensure we get values even if there are less than 50 games
+            running_avg = position_dummies.rolling(window=50, min_periods=1).mean().shift(self.shift).fillna(0)
+
+            # Add player name back to the running average DataFrame
+            running_avg['firstName'] = firstName
+            running_avg['familyName'] = familyName
+            running_avg['gameId'] = group['gameId']  # Ensure gameId is included for merging
+
+            # Append the results to the running frequencies DataFrame
+            running_frequencies = pd.concat([running_frequencies, running_avg], ignore_index=True)
+
+        running_frequencies.fillna(0)
+        # Merge the running frequencies back to the original player stats DataFrame on gameId
+        self.player_stats = pd.merge(self.player_stats, running_frequencies, on=['gameId', 'firstName', 'familyName'], how='left')
+
+    
+    def compile_complete_profiles(self):
+        self.complete_profiles = pd.merge(self.team_stats, self.rosters, on = ['gameId', 'teamTricode', 'date'], how = 'inner')
+        self.complete_profiles = self.complete_profiles.drop_duplicates(subset = ['gameId', 'teamTricode'])
+    
 
 
-    # Save to CSV
-    df_running_avgs.to_csv(f'{season}_averages.csv', index=False)
-    print("Completed season: ", season)
+class RosterGenerator:
+
+    def __init__(self, games, player_stats, team_stats):
+        self.games = games
+        self.player_stats = player_stats
+        
+        self.team_stats = team_stats
+        self.rosters = pd.DataFrame()
+        self.generate_rosters()
+
+    def generate_rosters(self):
+        profiles = []
+
+        for gameId in self.games['gameId'].unique():
+            game_date = self.team_stats[self.team_stats['gameId'] == gameId]['date'].iloc[0]
+            teams = self.team_stats[self.team_stats['gameId'] == gameId]['teamTricode'].unique()
+
+            for team in teams:
+                roster = self.get_roster(gameId, team)
+                
+                roster = roster.sort_values(by=['running_avg_minutes'], ascending=False)
+
+                # Prepare the profile dictionary
+                profile = {'gameId': gameId, 'teamTricode': team, 'date': game_date}
+
+                # Add starters to profile
+                nonstat_columns = ['gameId', 'teamTricode', 'firstName', 'familyName', 'position', 'date']
+                count = 1
+                for index, row in roster.head(8).iterrows():
+                    stats = row.index
+                    for stat in row.index:
+                        if stat not in nonstat_columns:
+                            profile_key = f"player_{count}_{stat}"
+                            profile[profile_key] = row[stat]
+                    count += 1
+                profiles.append(profile)
+
+        # Convert the list of dictionaries to DataFrame
+        self.rosters = pd.DataFrame(profiles)
+        
+    def get_roster(self, gameId, team):
+        # Filter players who played in the specified game and belong to the specified team
+        game_players = self.player_stats[(self.player_stats['gameId'] == gameId) & 
+                                        (self.player_stats['teamTricode'] == team)]
+
+        # Identify starters (players with assigned positions)
+        starters = game_players[game_players['position'].isin(['G', 'F', 'C'])]
+
+        # Identify non-starters
+        non_starters = game_players[~game_players.index.isin(starters.index)]
+
+        # Sort non-starters by average minutes played
+        sorted_non_starters = non_starters.sort_values(by='running_avg_minutes', ascending=False)
+
+        # Select top 7 non-starters
+        top_non_starters = sorted_non_starters.head(7)
+
+        # Combine starters and top non-starters
+        roster = pd.concat([starters, top_non_starters])
+
+        return roster
+    
+    
+    
 
 
+                 
 
-all_games.to_csv('all_games.csv')
-all_averages.to_csv('all_averages.csv')
+if __name__ == "__main__":
+    seasons = ['2023-24', '2022-23', '2021-22', '2020-21', '2019-20', '2018-19', '2017-18', '2016-17']
+    p = Preprocessor(seasons, 50, 1, full=True)
+    p25 = Preprocessor(seasons, 25, 1, False)
+    p10 = Preprocessor(seasons, 10, 1, False)
+    p5 = Preprocessor(seasons, 5, 1, False)
+    
+
+    common_cols = list(set(p.complete_profiles.columns).intersection(set(p25.team_stats.columns)))
+
+    p.complete_profiles = pd.merge(p.complete_profiles, p25.team_stats, on = common_cols, how = 'inner')
+    p.complete_profiles = pd.merge(p.complete_profiles, p10.team_stats, on = common_cols, how = 'inner')
+    p.complete_profiles = pd.merge(p.complete_profiles, p5.team_stats, on = common_cols, how='inner')
+
+    try:
+        p.games.to_csv('all_games.csv')
+        p.team_stats.to_csv('all_team_averages.csv')
+        p.player_stats.to_csv('all_player_averages.csv')
+        p.complete_profiles.to_csv('all_averages.csv')
+    except PermissionError as e:
+        print(f"Caught {e}, saving to backup files")
+        p.games.to_csv('backup_all_games.csv')
+        p.team_stats.to_csv('backup_all_team_averages')
+        p.player_stats.to_csv('backup_all_player_averages.csv')
+        p.complete_profiles.to_csv('backup_all_averages.csv')
+        
