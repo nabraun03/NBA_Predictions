@@ -220,21 +220,28 @@ class Preprocessor:
 
     def generate_travel_statistics(self):
         
-        for days in [1, 3, 5, 10]:  # The different periods you're interested in
-            self.team_stats[f'avg_travel_last_{days}_days'] = self.team_stats.apply(lambda row: calculate_travel(row['teamTricode'], row['date'], days, self.games, self.current), axis=1)
-        self.team_stats[['gameId', 'teamTricode', 'date', 'avg_travel_last_1_days', 'avg_travel_last_3_days', 'avg_travel_last_5_days', 'avg_travel_last_10_days']].to_csv('travel_data.csv')
+        travel_data = pd.read_csv('travel_data.csv')
 
-        """
         try:
-            travel_data = pd.read_csv('travel_data.csv')
-            self.team_stats = pd.merge(self.team_stats, travel_data[['gameId', 'teamTricode', 'avg_travel_last_1_days', 'avg_travel_last_3_days', 'avg_travel_last_5_days', 'avg_travel_last_10_days']], on = ['gameId', 'teamTricode'], how = 'inner')
-            for i in range(100):
-                print(self.team_stats.shape)
+            print(self.team_stats.shape)
+            self.team_stats = pd.merge(self.team_stats, travel_data[['gameId', 'teamTricode', 'avg_travel_last_1_days', 'avg_travel_last_3_days', 'avg_travel_last_5_days', 'avg_travel_last_10_days']], on = ['gameId', 'teamTricode'], how = 'left')
+            print(self.team_stats.shape)
+
+            missing_travel_stats = self.team_stats[self.team_stats['avg_travel_last_1_days'].isna()]
+
+            for days in [1, 3, 5, 10]:  # The different periods you're interested in
+                missing_travel_stats[f'avg_travel_last_{days}_days'] = missing_travel_stats.apply(lambda row: calculate_travel(row['teamTricode'], row['date'], days, self.games, self.current), axis=1)
+            self.team_stats.update(missing_travel_stats)
+            self.team_stats[['gameId', 'teamTricode', 'date', 'avg_travel_last_1_days', 'avg_travel_last_3_days', 'avg_travel_last_5_days', 'avg_travel_last_10_days']].to_csv('travel_data.csv')
 
             
 
         except:
-        """
+            for days in [1, 3, 5, 10]:  # The different periods you're interested in
+                self.team_stats[f'avg_travel_last_{days}_days'] = self.team_stats.apply(lambda row: calculate_travel(row['teamTricode'], row['date'], days, self.games, self.current), axis=1)
+            self.team_stats[['gameId', 'teamTricode', 'date', 'avg_travel_last_1_days', 'avg_travel_last_3_days', 'avg_travel_last_5_days', 'avg_travel_last_10_days']].to_csv('travel_data.csv')
+
+            
 
     def generate_elo(self):
         if self.current:

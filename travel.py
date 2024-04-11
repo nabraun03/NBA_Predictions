@@ -90,7 +90,7 @@ from datetime import timedelta
 count = 0
 
 
-averages = pd.read_csv('all_averages.csv', index_col = 0)
+averages = pd.read_csv('travel_data.csv', index_col = 0)
 # Function to calculate travel for a given period
 def calculate_travel(team, game_date, days, games_df, current):
     global count
