@@ -219,11 +219,22 @@ class Preprocessor:
         
 
     def generate_travel_statistics(self):
+        
         for days in [1, 3, 5, 10]:  # The different periods you're interested in
-            
             self.team_stats[f'avg_travel_last_{days}_days'] = self.team_stats.apply(lambda row: calculate_travel(row['teamTricode'], row['date'], days, self.games, self.current), axis=1)
         self.team_stats[['gameId', 'teamTricode', 'date', 'avg_travel_last_1_days', 'avg_travel_last_3_days', 'avg_travel_last_5_days', 'avg_travel_last_10_days']].to_csv('travel_data.csv')
 
+        """
+        try:
+            travel_data = pd.read_csv('travel_data.csv')
+            self.team_stats = pd.merge(self.team_stats, travel_data[['gameId', 'teamTricode', 'avg_travel_last_1_days', 'avg_travel_last_3_days', 'avg_travel_last_5_days', 'avg_travel_last_10_days']], on = ['gameId', 'teamTricode'], how = 'inner')
+            for i in range(100):
+                print(self.team_stats.shape)
+
+            
+
+        except:
+        """
 
     def generate_elo(self):
         if self.current:
@@ -262,24 +273,45 @@ class Preprocessor:
         return pd.concat(modified_groups)
     
     def generate_player_running_averages(self, group):
-        percentage_columns = ['assistPercentage','assistToTurnover','assistRatio','offensiveReboundPercentage','defensiveReboundPercentage','reboundPercentage','turnoverRatio','effectiveFieldGoalPercentage','trueShootingPercentage','usagePercentage','estimatedUsagePercentage', 'fieldGoalsPercentage', 'threePointersPercentage', 'freeThrowsPercentage', 'contestedFieldGoalPercentage', 'uncontestedFieldGoalsPercentage', 'defendedAtRimFieldGoalPercentage']
         averaging_columns = [col for col in group.columns if col not in ['gameId', 'teamTricode', 'firstName', 'familyName', 'date', 'position']]
+
+        new_columns = {}
         for col in averaging_columns:
-            running_avg_col_name = f'running_avg_{col}'
-            group[running_avg_col_name] = group[col].ewm(span=self.span, min_periods = 1).mean().shift(self.shift)
-        group = group.drop(columns = averaging_columns)
+            for span_factor in [1, 2, 10]:
+                running_avg_col_name = f'running_avg_{col}_{int(self.span/span_factor)}'
+                # Perform the calculation and store the result in the container
+                new_columns[running_avg_col_name] = group[col].ewm(span=int(self.span/span_factor), min_periods=1).mean().shift(self.shift)
+
+        # Create a new DataFrame from the container
+        new_columns_df = pd.DataFrame(new_columns, index=group.index)
+
+        # Concatenate the new DataFrame with the original group DataFrame
+        group = pd.concat([group, new_columns_df], axis=1)
+
+        # Drop the original averaging columns
+        group = group.drop(columns=averaging_columns)
+
         return group
 
     def generate_rosters(self):
         all_rosters = []
-        for season in self.seasons:
-            print(f'Compiling stats for season {season}')
-            games = pd.read_csv(f'{season}_all_games.csv')
+        if not self.current:
+            for season in self.seasons:
+                print(f'Compiling stats for season {season}')
+                games = pd.read_csv(f'{season}_all_games.csv')
+                generator = RosterGenerator(games, self.player_stats, self.team_stats)
+                rosters = generator.rosters
+
+
+                all_rosters.append(rosters)
+        else:
+            games = pd.read_csv('2023-24_all_games.csv')
             generator = RosterGenerator(games, self.player_stats, self.team_stats)
             rosters = generator.rosters
 
 
             all_rosters.append(rosters)
+
         self.rosters = pd.concat(all_rosters)
     
     def impute_historical_positions(self):
@@ -337,7 +369,7 @@ class RosterGenerator:
             for team in teams:
                 roster = self.get_roster(gameId, team)
                 
-                roster = roster.sort_values(by=['running_avg_minutes'], ascending=False)
+                roster = roster.sort_values(by=['running_avg_minutes_50'], ascending=False)
 
                 # Prepare the profile dictionary
                 profile = {'gameId': gameId, 'teamTricode': team, 'date': game_date}
@@ -369,7 +401,7 @@ class RosterGenerator:
         non_starters = game_players[~game_players.index.isin(starters.index)]
 
         # Sort non-starters by average minutes played
-        sorted_non_starters = non_starters.sort_values(by='running_avg_minutes', ascending=False)
+        sorted_non_starters = non_starters.sort_values(by='running_avg_minutes_50', ascending=False)
 
         # Select top 7 non-starters
         top_non_starters = sorted_non_starters.head(7)
@@ -391,7 +423,8 @@ if __name__ == "__main__":
     p25 = Preprocessor(seasons, 25, 1, False)
     p10 = Preprocessor(seasons, 10, 1, False)
     p5 = Preprocessor(seasons, 5, 1, False)
-    
+    p3 = Preprocessor(seasons, 3, 1, False)
+
 
     common_cols = list(set(p.complete_profiles.columns).intersection(set(p25.team_stats.columns)))
 
@@ -399,6 +432,7 @@ if __name__ == "__main__":
     p.complete_profiles = pd.merge(p.complete_profiles, p10.team_stats, on = common_cols, how = 'inner')
     p.complete_profiles = pd.merge(p.complete_profiles, p5.team_stats, on = common_cols, how='inner')
 
+    print("Processing complete, saving data")
     try:
         p.games.to_csv('all_games.csv')
         p.team_stats.to_csv('all_team_averages.csv')

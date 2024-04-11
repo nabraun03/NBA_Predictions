@@ -72,8 +72,10 @@ def elo(games, averages, current):
         gameId = row['gameId']
         
         game_averages = averages[averages['gameId'] == gameId]
-
         
+        if (game_averages.shape[0] == 0):
+            print(gameId)
+
         home_game_count = int(game_averages[game_averages['teamTricode'] == home_team]['game_count'].iloc[0])
 
         away_game_count = int(game_averages[game_averages['teamTricode'] == away_team]['game_count'].iloc[0])
@@ -84,6 +86,7 @@ def elo(games, averages, current):
             {'gameId' : gameId, 'teamTricode' : home_team, 'elo' : elo_ratings[home_team]},
             {'gameId' : gameId, 'teamTricode' : away_team, 'elo' : elo_ratings[away_team]}
         ]
+
         new_rows = pd.DataFrame(new_rows)
         elo = pd.concat([elo, new_rows])
 

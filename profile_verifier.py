@@ -26,8 +26,8 @@ for name, group in teams:
         profile = current_profiles[current_profiles['teamTricode'] == name]
         profile = profile[group.columns]
         profile = profile.iloc[0]
-        profile = profile.drop(columns = ['gameId', 'date'])
-        row = row.drop(columns = ['gameId', 'date'])
+        profile = profile.drop(labels = ['gameId', 'date'])
+        row = row.drop(labels = ['gameId', 'date'])
         
         import numpy as np
 
@@ -36,12 +36,17 @@ for name, group in teams:
 
         # Map indices to column names
         different_columns = row.index[different_indices]
-        print(row[different_columns])
-        print(profile[different_columns])
+        #print(different_columns)
+        
         for col in different_columns:
-            if 'minutes' in col:
-                print(col)
-                print(row[col])
-                print(profile[col])
+            if 'minutes_50' in col:
+                words = col.split('_')
+                print(f'{words[0]} {words[1]}')
+                #print(row[different_columns])
+                #print(profile[different_columns])
+                #print(row[col])
+                #print(profile[col])
         
         print(f"Accuracy for {name}: {(1 - len(different_columns) / len(row)) * 100}%")
+
+

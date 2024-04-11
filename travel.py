@@ -3,7 +3,7 @@ from geopy.geocoders import Nominatim
 import time
 import csv
 from datetime import date
-from games import fetch_games_today
+
 
 class TravelCollector:
     
@@ -124,7 +124,7 @@ def calculate_travel(team, game_date, days, games_df, current):
     
     if current:
         
-       
+        from games import fetch_games_today
         games = fetch_games_today()
         for game in games:
             away, home = game.split('-')

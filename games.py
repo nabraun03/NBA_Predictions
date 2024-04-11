@@ -64,4 +64,8 @@ def fetch_games_today(yesterday=False):
     games = []
     for i in range(0, len(team_names_raw), 2):
         games.append(f'{team_map[team_names_raw[i].text]}-{team_map[team_names_raw[i+1].text]}')
+
     return games
+
+print(fetch_games_today())
+

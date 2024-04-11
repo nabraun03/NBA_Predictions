@@ -5,12 +5,14 @@ import numpy as np
 from datetime import date
 from travel import calculate_travel
 
+
 class CurrentProfileGenerator:
     def __init__(self, seasons):
         p = Preprocessor(seasons, 50, 0, True)
         p25 = Preprocessor(seasons, 25, 0, False)
         p10 = Preprocessor(seasons, 10, 0, False)
         p5 = Preprocessor(seasons, 5, 0, False)
+        p3 = Preprocessor(seasons, 3, 0, False)
         self.games = p.games
 
 
@@ -20,6 +22,7 @@ class CurrentProfileGenerator:
         p.team_stats = pd.merge(p.team_stats, p25.team_stats, on = common_cols, how = 'inner')
         p.team_stats = pd.merge(p.team_stats, p10.team_stats, on = common_cols, how = 'inner')
         p.team_stats = pd.merge(p.team_stats, p5.team_stats, on = common_cols, how='inner')
+        p.team_stats = pd.merge(p.team_stats, p3.team_stats, on = common_cols, how='inner')
         self.team_stats = p.team_stats
         self.team_stats = pd.merge(self.team_stats, p.elo_ratings, on = ['teamTricode'], how = 'inner')
         assert 'elo' in self.team_stats.columns
@@ -83,9 +86,9 @@ class CurrentProfileGenerator:
         active_roster = active_roster.groupby(['fullName']).apply(lambda x: x.sort_values(by='date', ascending=False).head(1)).reset_index(drop=True)
 
         # Select top 12 players based on average minutes played
-        top_players = active_roster.sort_values(by='running_avg_minutes', ascending=False).head(12)
+        top_players = active_roster.sort_values(by='running_avg_minutes_50', ascending=False).head(12)
         
-        print(top_players[['fullName', 'running_avg_minutes', 'running_avg_points', 'C', 'F', 'G']])
+        print(top_players[['fullName', 'running_avg_minutes_50', 'running_avg_points_50', 'C', 'F', 'G']])
         return top_players
 
     def impute_current_teams(self):
@@ -109,7 +112,7 @@ class CurrentProfileGenerator:
     
     def create_profile(self, team, roster):
         # Sort players by average minutes
-        roster_sorted = roster.sort_values(by='running_avg_minutes', ascending=False)
+        roster_sorted = roster.sort_values(by='running_avg_minutes_50', ascending=False)
 
         # Prepare the profile dictionary
         profile = {'teamTricode': team}

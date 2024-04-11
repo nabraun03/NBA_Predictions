@@ -5,6 +5,15 @@ import numpy as np
 from games import fetch_games_today
 import xgboost as xgb
 
+
+scripts = ['currentprofiles.py']
+
+#for script in scripts:
+#    print(script)
+#    with open(script, "r") as file:
+#        exec(file.read())
+
+
 class Predictor:
 
     def __init__(self, n_ml_models, n_spread_models, current_profiles, training_data):
@@ -13,6 +22,7 @@ class Predictor:
         self.current_profiles = current_profiles
         self.training_data = training_data
         self.games = fetch_games_today()
+        print(self.games)
         self.ml_models = []
         self.spread_models = []
         #print("Loading ML Models")
@@ -85,6 +95,21 @@ class Predictor:
 
             combined = pd.merge(home_team, away_team, on = ['gameId'], suffixes=['_home', '_away'])
 
+                        # Calculate the differential features using .sub()
+            home_team = home_team.set_index('gameId')
+            away_team = away_team.set_index('gameId')
+            
+            diff_features = home_team.sub(away_team, fill_value=0)
+
+            # Reset index to make 'gameId' a column again for the merge operation
+            diff_features = diff_features.reset_index()
+
+            # Rename the columns to indicate they are differential features
+            diff_features.columns = ['gameId'] + [f'diff_{col}' for col in diff_features.columns if col != 'gameId']
+
+            # Merge the differential features onto X_combined based on 'gameId'
+            combined = combined.merge(diff_features, on='gameId', how='left')
+
             
             combined['playoff'] = 0
             combined = combined[self.training_data.columns]
@@ -125,7 +150,7 @@ if __name__ == '__main__':
     current_profiles = pd.read_csv('current_profiles.csv', index_col = 0)
     current_profiles = pd.get_dummies(current_profiles, columns = ['teamTricode'])
     train = pd.read_csv('X_train.csv', index_col = 0)
-    p = Predictor(5, 46, current_profiles, train)
+    p = Predictor(5, 28, current_profiles, train)
 
 
 

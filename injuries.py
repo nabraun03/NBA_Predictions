@@ -25,8 +25,10 @@ def extract_text_from_pdf(pdf_file_path):
 
     return text
 
-def fetch_injured_players():
+def fetch_injured_players(current_date = None):
     current_date = datetime.now().strftime("%Y-%m-%d")
+    print(current_date)
+    current_date = "2024-04-10"
     dated_url = f'{base_url}_{current_date}'
     last_url = None
 
@@ -40,29 +42,24 @@ def fetch_injured_players():
             print(last_url)
         except:
             try:
+                full_url = f'{dated_url}_11PM.pdf'
                 download_pdf(last_url, "injury_report.pdf")
 
                 text = extract_text_from_pdf('injury_report.pdf')
-                text = text.replace('\n', ' ').replace('Injury Report:', '').replace('G League', 'G-League')
                 print(text)
+                text = text.replace('\n', ' ').replace('Injury Report:', '').replace('G League', 'G-League')
 
                 # Updated regex pattern
                 pattern = r"([A-Za-z'.]+(?:\sJr\.|\sSr\.|\sII|\sIII|\sIV)?),\s*([A-Za-z'.]+)\s*(Available|Out|Doubtful|Questionable|Probable|Not With Team)\s*(Injury/Illness|G-League|Two-Way|Coach's Decision|League Suspension)"
 
 
                 matches = re.findall(pattern, text)
-                print(matches)
 
                 injured_players = []
                 for match in matches:
 
-                    if match[2] == 'Out':
+                    if match[2] == 'Out' or match[2] == 'Doubtful':
                         injured_players.append(f'{match[1]} {match[0]}')
-
-                print("INJURED PLATERS")
-                print('INJURED PLAYERS')
-                print(injured_players)
-                print(injured_players)
                 return injured_players
             except:
                 return []
