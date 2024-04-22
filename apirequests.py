@@ -130,6 +130,8 @@ class NBADataFetcher:
                 setattr(self, f'existing_{data_type}_stats', existing_data)
             except FileNotFoundError:
                 setattr(self, f'existing_{data_type}_stats', pd.DataFrame())
+            except pd.errors.EmptyDataError:
+                setattr(self, f'existing_{data_type}_stats', pd.DataFrame())
 
 
     def data_exists(self, game_id, data_type, team_or_player):

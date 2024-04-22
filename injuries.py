@@ -27,7 +27,6 @@ def extract_text_from_pdf(pdf_file_path):
 
 def fetch_injured_players(current_date = None):
     current_date = datetime.now().strftime("%Y-%m-%d")
-    print(current_date)
     dated_url = f'{base_url}_{current_date}'
     last_url = None
 
@@ -38,14 +37,12 @@ def fetch_injured_players(current_date = None):
 
             response.raise_for_status()
             last_url = full_url
-            print(last_url)
         except:
             try:
                 full_url = f'{dated_url}_11PM.pdf'
                 download_pdf(last_url, "injury_report.pdf")
 
                 text = extract_text_from_pdf('injury_report.pdf')
-                print(text)
                 text = text.replace('\n', ' ').replace('Injury Report:', '').replace('G League', 'G-League')
 
                 # Updated regex pattern
