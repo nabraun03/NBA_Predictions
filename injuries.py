@@ -28,7 +28,6 @@ def extract_text_from_pdf(pdf_file_path):
 def fetch_injured_players(current_date = None):
     current_date = datetime.now().strftime("%Y-%m-%d")
     print(current_date)
-    current_date = "2024-04-10"
     dated_url = f'{base_url}_{current_date}'
     last_url = None
 

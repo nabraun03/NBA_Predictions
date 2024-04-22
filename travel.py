@@ -104,7 +104,7 @@ def calculate_travel(team, game_date, days, games_df, current):
     if len(existing) == 1:
         return existing[f'avg_travel_last_{days}_days'].iloc[0]
 
-    
+
     distances_df = pd.read_csv('team_distances.csv')
     distances_dict = {(row['Team1'], row['Team2']): row['Distance_km'] for index, row in distances_df.iterrows()}
     end_date = game_date
