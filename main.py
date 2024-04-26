@@ -67,6 +67,7 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
+        "-f",
         "--full-predictions",
         help="Fetches data from online, creates current profiles, and generates predictions",
         action='store_true',
@@ -74,14 +75,16 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        "--training-data",
+        "-p",
+        "--preprocess",
         help="Fetches data from online and generates all training data",
         action='store_true',
         default=False
     )
 
     parser.add_argument(
-        "--new-predictions",
+        "-u",
+        "--update",
         help="Creates current profiles and generates predictions",
         action='store_true',
         default=False
@@ -97,9 +100,9 @@ if __name__ == '__main__':
     args = parser.parse_known_args()[0]
     parser.set_defaults(full_predictions = False, training_data = False, new_predictions = False)
     
-    if args.training_data:
+    if args.preprocess:
         scripts = ['apirequests.py', 'preprocessing.py']
-    elif args.new_predictions:
+    elif args.update:
         scripts = ['currentprofiles.py', 'predictions.py']
     else:
         scripts = ['apirequests.py', 'currentprofiles.py', 'predictions.py']
