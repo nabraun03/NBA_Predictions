@@ -4,6 +4,7 @@ from sklearn.preprocessing import StandardScaler
 import numpy as np
 from games import fetch_games_today
 import xgboost as xgb
+import matplotlib.pyplot as plt
 
 
 scripts = ['currentprofiles.py']
@@ -13,6 +14,11 @@ scripts = ['currentprofiles.py']
 #    with open(script, "r") as file:
 #        exec(file.read())
 
+def team_helper(teams, value):
+    if value > 0:
+        return teams[1]
+    else:
+        return teams[0]
 
 class Predictor:
 
@@ -25,22 +31,12 @@ class Predictor:
         print(self.games)
         self.ml_models = []
         self.spread_models = []
-        #print("Loading ML Models")
-        #self.load_ml_models()
         print("Loading spread models")
         self.load_spread_models()
         print("Loading scalers")
         self.load_scalers()
         print("Generating predictions")
         self.generate_predictions()
-
-
-
-    def load_ml_models(self):
-        for i in range(1, self.n_ml_models + 1):
-            loaded_model = xgb.XGBClassifier()
-            loaded_model = pickle.load(open(f"models/xgb_model_{i}.pkl", "rb"))
-            self.ml_models.append(loaded_model)
 
     def load_spread_models(self):
         for i in range(1, self.n_spread_models + 1):
@@ -52,30 +48,18 @@ class Predictor:
         return self.current_profiles[self.current_profiles[f'teamTricode_{team}'] == 1]
 
     def load_scalers(self):
-        #with open('scaler.pkl', 'rb') as file:
-        #    self.ml_scaler = pickle.load(file)
-        
         with open('spreadscaler.pkl', 'rb') as file:
             self.spread_scaler = pickle.load(file)
 
-    def predict_ml(self, combined):
-        total = 0
-        for model in self.ml_models:
-            total += model.predict(combined)
-        total = total / self.n_ml_models
-
-        if total == 1:
-            return "Home"
-        elif total == 0:
-            return "Away"
-        else:
-            return f"Split: {total[0]}"
-
     def predict_spread(self, combined):
         total = 0
+        predictions = []
         for model in self.spread_models:
-            total += model.predict(combined)
-        return total / self.n_spread_models
+            prediction = model.predict(combined)[0]
+            total += prediction
+            predictions.append(prediction)
+
+        return predictions
     
     def generate_predictions(self):
         for game in self.games:
@@ -111,7 +95,7 @@ class Predictor:
             combined = combined.merge(diff_features, on='gameId', how='left')
 
             
-            combined['playoff'] = 0
+            combined['playoff'] = 1
             combined = combined[self.training_data.columns]
             combined_ml = combined.copy()
             combined_spread = combined.copy()
@@ -120,7 +104,6 @@ class Predictor:
             #combined_ml[numerical_cols] = self.ml_scaler.transform(combined_ml[numerical_cols])
             combined_spread[numerical_cols] = self.spread_scaler.transform(combined_spread[numerical_cols])
 
-            #ml_prediction = self.predict_ml(combined_ml)
             for col in set(combined_spread.columns):
                 if col not in set(self.training_data.columns):
                     print(col)
@@ -129,17 +112,27 @@ class Predictor:
                     print(col)
             
             combined_spread = combined_spread[self.training_data.columns]
-            spread_prediction = self.predict_spread(combined_spread)
+            predictions = self.predict_spread(combined_spread)
+
+
 
 
             print(f"{teams[0]} @ {teams[1]}")
-            #print(f"Moneyline: {ml_prediction}")
-            if spread_prediction[0] > 0:
-                winner = teams[1]
-            else:
-                winner = teams[0]
-            print(f"Spread: {winner} by {abs(spread_prediction[0])}")
+            print(f"Spread: {team_helper(teams, np.mean(predictions))} by {abs(np.mean(predictions))}")
+            print(f"Median spread: {team_helper(teams, np.median(predictions))} by {abs(np.median(predictions))}")
+            print(f"Standard deviation: {np.std(predictions)}")
+            print(f"Minimum: {team_helper(teams, np.min(predictions))} by {abs(np.min(predictions))}")
+            print(f"Maximum: {team_helper(teams, np.max(predictions))} by {abs(np.max(predictions))}")
+            print(f"25th Percentile: {team_helper(teams, np.percentile(predictions, 25))} by {abs(np.percentile(predictions, 25))}")
+            print(f"75th Percentile: {team_helper(teams, np.percentile(predictions, 75))} by {abs(np.percentile(predictions, 75))}")
             print('')
+
+            plt.hist(predictions, bins=10, alpha=0.7, color='blue', edgecolor='black')
+            plt.title('Histogram of Data')
+            plt.xlabel('Value')
+            plt.ylabel('Frequency')
+            plt.show()
+
         
 
 
